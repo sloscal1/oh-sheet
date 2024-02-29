@@ -1,9 +1,9 @@
 {
     "packages": ["bokeh==3.2.2", "pandas==1.5.3", "panel==1.3.8", "pyyaml==6.0.1"],
     "files": {
-        "https://raw.githubusercontent.com/sloscal1/autobot/main/config.yaml": "./config.yaml",
-        "https://raw.githubusercontent.com/sloscal1/autobot/main/data/clean.csv": "./data/sheet.csv",
-        "https://raw.githubusercontent.com/sloscal1/autobot/main/src/custom_autocomplete/trie.py": "./trie.py",
-        "https://raw.githubusercontent.com/sloscal1/autobot/main/src/custom_autocomplete/table_setup.py": "./table_setup.py"
+        "https://raw.githubusercontent.com/sloscal1/oh-sheet/main/config.yaml": "./config.yaml",
+        "https://raw.githubusercontent.com/sloscal1/oh-sheet/main/data/clean.csv": "./data/sheet.csv",
+        "https://raw.githubusercontent.com/sloscal1/oh-sheet/main/src/custom_autocomplete/trie.py": "./trie.py",
+        "https://raw.githubusercontent.com/sloscal1/oh-sheet/main/src/custom_autocomplete/table_setup.py": "./table_setup.py"
     }
 }
