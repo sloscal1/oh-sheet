@@ -3,8 +3,10 @@ raw_data:
 clean_data:
   name: ./data/clean.csv
   used_fields:
-    - Name
-    - Attribute
+    - Title
+    - Podcaster
+    - Author
+    - Ship
     - Link
   no_filter_fields:
     - Link
