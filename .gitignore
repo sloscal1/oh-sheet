@@ -1,0 +1,5 @@
+.DS_Store
+.mypy_cache
+dist/*.tar.gz
+__pycache__
+**/*.egg-info
