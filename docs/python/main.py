@@ -38,18 +38,22 @@ class AutocompleteTable:
             self.config = yaml.safe_load(config_file)
         self.full_data = pd.read_csv(self.config["website"]["data"]).fillna("")
 
+        self.dropdown_selected = -1
         self.autocompletes: Dict[str, Trie] = {} 
         search_boxes = pydom["#autocompletes"][0]
         for field in self.config["clean_data"]["used_fields"]:
             if field not in self.config["clean_data"]["no_filter_fields"]:
                 self._create_ac_from_field(field)
                 new_form = search_boxes.create("form", classes=["result_form"])
+                new_form.id = f"form{field}"
                 new_form._js.autocomplete = "off"
+                new_form._js.addEventListener("submit", create_proxy(self.form_submit))
                 new_box = new_form.create("input", classes=["result_input"])
                 new_box.id = field
                 new_box._js.placeholder = field
                 new_box.type = "text"
                 new_box._js.addEventListener("keyup", create_proxy(self.suggest))
+                new_box._js.addEventListener("focus", create_proxy(self._clear_dropdowns))
                 # new_box._js.addEventListener("blur", create_proxy(close_dropdowns))
                 new_div = new_form.create("div", classes=["result"])
                 new_div.id = f"result{field}"
@@ -61,22 +65,57 @@ class AutocompleteTable:
 
         # Add other control flow actions
         document.addEventListener("keyup", create_proxy(self.close_dropdowns))
-        print(pd.__version__)
+    
+    def _filter_on(self, selected: str, field) -> None:
+        print(field)
+        pydom[f"#{field}"][0].value = selected
+        pydom[f"#result{field}"][0].html = ""
+        self._update_table_filters()
+    
+    def form_submit(self, event) -> None:
+        event.preventDefault()
+        field = event.target.id[len('form'):]
+        list_elements = pydom[f".{field}"]
+        if list_elements:
+            selected = 0
+            if self.dropdown_selected >= 0:
+                selected = self.dropdown_selected
+                self.dropdown_selected = -1
+            self._filter_on(list_elements[selected].content, field)
 
     def filter_on(self, event) -> None:
+        event.preventDefault()
         selected = event.target.innerText
-        print(event.target.classList.item(1))
         selected_field = event.target.classList.item(1)
-        pydom[f"#{selected_field}"][0].value = selected
-        pydom[f"#result{selected_field}"][0].html = ""
-        self.current_data = self.current_data[lambda x: x[f"{selected_field}"].str.startswith(selected)]  # type: ignore
-        self.table.value = self.current_data
+        self._filter_on(selected, selected_field)
+    
+    def _update_table_filters(self) -> None:
+        self.current_data = self.full_data
+        for field in pydom[".result_input"]:
+            if field.value:
+                self.current_data = self.current_data[self.current_data[f"{field.id}"].str.startswith(field.value)]  # type: ignore
+        self.table.value = self.current_data  # type: ignore
 
     def suggest(self, event) -> None:
+        event.preventDefault()
+        print(event.code)
         if event.isComposing or event.keyCode == 229:
             return
-        # if not event.code.startswith("Key"):  # TODO this is too specific;
-        #     return
+        if event.code == "Enter" or event.code == "Tab":
+            self.dropdown_selected = -1
+            return
+        direction = 1
+        if event.code == "ArrowUp":
+            direction = -1
+        if event.code in ["ArrowUp", "ArrowDown"]:
+            choices = pydom[f".{event.target.id}"]
+            if choices:
+                if self.dropdown_selected >= 0:
+                    self.dropdown_selected = (self.dropdown_selected + direction) % len(choices)
+                else:
+                    self.dropdown_selected = 0 if direction == 1 else len(choices) - 1
+                pydom[f"#{event.target.id}"].value = pydom[f".{event.target.id}"][self.dropdown_selected].content
+            return
         entered = event.target.value
         if entered:
             results = self.autocompletes[event.target.id].match(entered, case_sensitive=False)
@@ -90,17 +129,20 @@ class AutocompleteTable:
                         result_list.create("li", html=response[:self.config["website"]["autocomplete_max_length"]], classes=["selectable", event.target.id])
                     elements = pydom[".selectable"]
                     for element in elements:
-                        print(element.html)
                         element._js.addEventListener("click", create_proxy(self.filter_on))
+            else:
+                self._clear_dropdowns()
         else:
-            result_div = pydom["#result"]
-            if result_div:
-                result_div = result_div[0]
-                result_div.html = ""
-            self.table.value = self.full_data  # type: ignore
-            self.current_data = self.full_data
+            self._clear_dropdowns()
+            self._update_table_filters()
+
+    def _clear_dropdowns(self, _ = None):
+        elements = pydom[".result"]
+        for element in elements:
+            element.html = ""
 
     def close_dropdowns(self, event):
+        event.preventDefault()
         if event.code == "Escape":
             elements = pydom[".result"]
             for element in elements:
