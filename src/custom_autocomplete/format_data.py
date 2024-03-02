@@ -32,7 +32,7 @@ def _format_links(raw_link: str) -> str:
     """
     img_link = image_maps[raw_link] if raw_link in image_maps else "./imgs/default.png"
     return (
-        f'<a href="{raw_link}">'
+        f'<a href="{raw_link}" target="_blank">'
         f'<img src="{img_link}" alt="{Path(img_link).stem}" class="link_icon">'
         f'</a>'
     )
