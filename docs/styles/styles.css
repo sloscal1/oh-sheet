@@ -35,6 +35,6 @@ background: #fff;
 padding: 5px 0;
 border: 1px solid #ccc;
 }
-.result ul li:hover {
+.result ul li:hover, .highlight {
 background: #ccc;
 }

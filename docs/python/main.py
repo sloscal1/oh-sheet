@@ -12,7 +12,6 @@ This code is meant to be run through pyscript in the browswer.
 from typing import Dict
 
 import pandas as pd
-import panel as pn
 import yaml
 from pyodide.ffi import create_proxy
 from pyscript import document
@@ -37,6 +36,8 @@ class AutocompleteTable:
         with open("./config.yaml", encoding="utf-8", mode="rt") as config_file:
             self.config = yaml.safe_load(config_file)
         self.full_data = pd.read_csv(self.config["website"]["data"]).fillna("")
+        self.table_entries_per_page = self.config["website"]["table_entries_per_page"]
+        self.autocomplete_max_length = self.config["website"]["autocomplete_max_length"]
 
         self.dropdown_selected = -1
         self.autocompletes: Dict[str, Trie] = {} 
@@ -111,9 +112,11 @@ class AutocompleteTable:
             choices = pydom[f".{event.target.id}"]
             if choices:
                 if self.dropdown_selected >= 0:
+                    pydom[f"#dropdown_{self.dropdown_selected}"][0].remove_class("highlight")
                     self.dropdown_selected = (self.dropdown_selected + direction) % len(choices)
                 else:
                     self.dropdown_selected = 0 if direction == 1 else len(choices) - 1
+                pydom[f"#dropdown_{self.dropdown_selected}"][0].add_class("highlight")
                 pydom[f"#{event.target.id}"].value = pydom[f".{event.target.id}"][self.dropdown_selected].content
             return
         entered = event.target.value
@@ -125,8 +128,11 @@ class AutocompleteTable:
                     result_div = divs[0]
                     result_div.html = ""
                     result_list = result_div.create("ul")
-                    for response in results[:10]:
-                        result_list.create("li", html=response[:self.config["website"]["autocomplete_max_length"]], classes=["selectable", event.target.id])
+                    for pos, response in enumerate(results[:self.table_entries_per_page]):
+                        list_element = result_list.create("li", html=response[:self.autocomplete_max_length])
+                        list_element.add_class("selectable")
+                        list_element.add_class(event.target.id)
+                        list_element.id = f"dropdown_{pos}"
                     elements = pydom[".selectable"]
                     for element in elements:
                         element._js.addEventListener("click", create_proxy(self.filter_on))
