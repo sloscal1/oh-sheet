@@ -37,7 +37,7 @@ class DataCleaner:
             pd.read_csv(self.config["raw_data"]["name"], header=0)
             .fillna("")
             .assign(Link=lambda x: x.Link.apply(format_links))
-            [self.config["clean_data"]["used_fields"] + ["Link"]]
+            [self.config["clean_data"]["used_fields"]]
             .to_csv(self.config["clean_data"]["name"], index=False, header=True)
         )
 
