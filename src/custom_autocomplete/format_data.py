@@ -18,7 +18,7 @@ image_maps = {
 
 def format_links(raw_link: str) -> str:
     img_link = image_maps[urlparse(raw_link).netloc] if raw_link in image_maps else "./imgs/default.png"
-    return f'<a href="{raw_link}"><img src="{img_link}" alt="{Path(img_link).stem}" class="link_icon"></a>'
+    return f'<a href="{raw_link}" target="_blank"><img src="{img_link}" alt="{Path(img_link).stem}" class="link_icon"></a>'
 
 class DataCleaner:
     def __init__(self) -> None:
