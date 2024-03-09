@@ -4,7 +4,7 @@ clean_data:
   name: ./data/clean.csv
   used_fields:
     - Title
-    - Podcaster
+    - Podficcer
     - Author
     - Ship
     - Link

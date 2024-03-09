@@ -12,12 +12,12 @@ image_maps = {
     "open.spotify.com": "./imgs/spotify.png",
     "soundcloud.com": "./imgs/soundcloud.png",
     "archive.org": "./imgs/archive.png",
+    "youtube.com": "./imgs/youtube.png",
+    "drive.google.com": "./imgs/drive.png",
 }
 
 def format_links(raw_link: str) -> str:
-    img_link = image_maps[urlparse(raw_link).netloc]
-    if not img_link:
-        img_link = "./imgs/default.png"
+    img_link = image_maps[urlparse(raw_link).netloc] if raw_link in image_maps else "./imgs/default.png"
     return f'<a href="{raw_link}"><img src="{img_link}" alt="{Path(img_link).stem}" class="link_icon"></a>'
 
 class DataCleaner:
@@ -33,9 +33,10 @@ class DataCleaner:
             self.config = yaml.safe_load(config_file)
     
     def clean(self) -> None:
+        data = pd.read_csv(self.config["raw_data"]["name"], header=0)
+        data.columns = list(map(str.strip, data.columns))
         (
-            pd.read_csv(self.config["raw_data"]["name"], header=0)
-            .fillna("")
+            data.fillna("")
             .assign(Link=lambda x: x.Link.apply(format_links))
             [self.config["clean_data"]["used_fields"]]
             .to_csv(self.config["clean_data"]["name"], index=False, header=True)
