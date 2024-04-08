@@ -3,33 +3,25 @@
   <head>
       <meta charset="utf-8" />
       <meta name="viewport" content="width=device-width,initial-scale=1" />
-        <link rel="stylesheet" href="https://pyscript.net/releases/2024.1.1/core.css" />
         <link rel="stylesheet" href="./styles/styles.css" />
-        <script type="module" src="https://pyscript.net/releases/2024.1.1/core.js"></script>
-        <script type="text/javascript" src="https://cdn.bokeh.org/bokeh/release/bokeh-3.2.2.js"></script>
-        <script type="text/javascript" src="https://cdn.bokeh.org/bokeh/release/bokeh-widgets-3.2.2.min.js"></script>
-        <script type="text/javascript" src="https://cdn.bokeh.org/bokeh/release/bokeh-tables-3.2.2.min.js"></script>
+        <link href="./styles/tabulator_simple.min.css" rel="stylesheet">
         <script type="text/javascript" src="https://unpkg.com/tabulator-tables@5.5.0/dist/js/tabulator.min.js"></script>
-        <script type="text/javascript">
-            Bokeh.set_log_level("info");
-        </script>
-        <script defer src="https://cdn.jsdelivr.net/npm/@holoviz/panel@1.3.8/dist/panel.min.js"></script>
-
-
-        <script type="module">
-            const loading = document.getElementById('loading');
-            addEventListener('py:ready', () => loading.close());
-            loading.showModal();
-        </script>
     </head>
-    <body>
-        <dialog id="loading">
-            <h1>Loading...</h1>
-        </dialog>
+    <body onload="load_data()">
+        <div id="autocompletes"></div>
+        <div id="filters"></div>
         <div class="col mh-100 float-left" id="main">
-          <div id="autocompletes"></div>
-          <div id="table"></div>
+          <div id="table" tabindex="-1"></div>
+          <div id="images"></div>
         </div>
-    <script type="py" src="./python/main.py" config="./python/pyscript.json"></script>
-  </body>
+        <label for="myfile">Select a file:</label>
+        <input type="file" id="myfile" name="myfile">
+        <input id="location" placeholder="Inventory Location"></input>
+        <div class="col mh-100 float-left" id="second_main">
+          <div id="inventory" tabindex="-1"></div>
+        </div>
+        <script type="text/javascript" src="inventory.js"></script>
+        <button id="save" type="button" onclick="saveInventory()">Save Inventory</button>
+    </body>
+
 </html>
