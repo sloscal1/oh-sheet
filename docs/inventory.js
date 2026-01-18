@@ -18,6 +18,9 @@
 // TODO: What to do when there are multiples?
 // TODO: I need a card condition label  DONE
 
+// API Configuration
+const API_BASE = "http://localhost:8000"
+
 let full_data
 let possible
 let inventory
@@ -50,12 +53,23 @@ function customCNHeaderFilter(headerValue, rowValue, _rowData, _filterParams){
 }
 
 async function load_data() {
-  // await fetch("./inventory_clean.json")
-  await fetch("./mtg_possible_20240407_clean.json")
-    .then(response => response.json())
-    .then(json => {
-      full_data = json
-    })
+  // Try to load from API first, fall back to JSON file
+  try {
+    const response = await fetch(`${API_BASE}/api/cards/all`)
+    if (response.ok) {
+      full_data = await response.json()
+      console.log("Loaded cards from API")
+    } else {
+      throw new Error("API request failed")
+    }
+  } catch (error) {
+    console.log("API not available, falling back to JSON file:", error.message)
+    await fetch("./mtg_possible_20240407_clean.json")
+      .then(response => response.json())
+      .then(json => {
+        full_data = json
+      })
+  }
 
   possible = new Tabulator("#table", {
     data: full_data, //assign data to table
@@ -212,8 +226,19 @@ async function load_data() {
   manager.on("tableBuilt", inventoryFinalLoad)
   inventory.on("rowClick", removeFromInventory)
   const loc = document.getElementById("location")
-  loc.addEventListener("keyup", event => {
+  loc.addEventListener("keyup", async event => {
     currentLocation = event.target.value
+    // Try to get next position from API
+    try {
+      const response = await fetch(`${API_BASE}/api/inventory/next-position?location=${encodeURIComponent(currentLocation)}`)
+      if (response.ok) {
+        const data = await response.json()
+        currentPosition = data.next_position
+        return
+      }
+    } catch (error) {
+      // Fall back to local calculation
+    }
     let matched = inventory.searchData("location", "=", currentLocation)
     currentPosition = 1
     if (matched.length !== 0) {
@@ -282,7 +307,7 @@ function isNameFocused(){
     let retval = false
     let active = document.activeElement
     if (active.parentElement !== null && active.parentElement.parentElement !== null){
-      active = active.parentElement.parentElement 
+      active = active.parentElement.parentElement
       retval = active.children[0].children[0].innerText == "Name"
     }
     return retval
@@ -314,7 +339,44 @@ async function finalLoad (_event) {
   possible.on("pageLoaded", _pageno => activeRow = -1)
   possible.setHeaderFilterFocus("name")
 
-  inventory.setData([])
+  // Try to load inventory from API
+  try {
+    const response = await fetch(`${API_BASE}/api/inventory/export`)
+    if (response.ok) {
+      const inventoryData = await response.json()
+      if (inventoryData.length > 0) {
+        inventory.setData(inventoryData)
+        manager.setData(inventoryData)
+        currentLocation = inventoryData[0]["location"]
+        document.getElementById("location").value = currentLocation
+        currentPosition = inventoryData[0]["pos"] + 1
+
+        // Populate destination dropdown
+        const dest = document.getElementById("destination")
+        const values = new Set([])
+        for (const row of inventoryData) {
+          values.add(row["location"])
+        }
+        const options = [...values]
+        options.sort()
+        for (var i = 0; i <= options.length; i++) {
+          var opt = document.createElement('option');
+          opt.value = i;
+          opt.innerHTML = options[i];
+          dest.appendChild(opt);
+        }
+        console.log("Loaded inventory from API")
+      } else {
+        inventory.setData([])
+      }
+    } else {
+      throw new Error("API request failed")
+    }
+  } catch (error) {
+    console.log("Could not load inventory from API:", error.message)
+    inventory.setData([])
+  }
+
   inventory.hideColumn("id")
   // inventory.on("dataChanged", _data => {possible.refreshFilter()})
   const dneData = await fetch("./dne.png")
@@ -326,14 +388,39 @@ async function inventoryFinalLoad (_event) {
   manager.hideColumn("id")
 }
 
-function _addToInventory (rowData) {
-  let new_data = rowData
+async function _addToInventory (rowData) {
+  let new_data = {...rowData}  // Create a copy to avoid mutating original
   new_data["location"] = currentLocation
   new_data["pos"] = currentPosition
-  currentPosition += 1
-  console.log(new_data["condition"])
   new_data["condition"] = document.getElementById("condition").value
-  console.log(new_data["condition"])
+
+  // Try to add to API
+  try {
+    const response = await fetch(`${API_BASE}/api/inventory`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        card_id: rowData.id,
+        location: currentLocation,
+        position: currentPosition,
+        condition: new_data["condition"]
+      })
+    })
+    if (response.ok) {
+      const savedItem = await response.json()
+      // Update the data with the server-generated ID for tracking
+      new_data._inventory_id = savedItem.id
+      console.log("Added to inventory via API")
+    } else {
+      console.log("API add failed, adding locally only")
+    }
+  } catch (error) {
+    console.log("Could not add to API, adding locally:", error.message)
+  }
+
+  currentPosition += 1
   inventory.addRow(new_data, true)
   activeRow = -1
   possible.deselectRow()
@@ -349,8 +436,30 @@ function addToInventory (_event, row) {
   }
 }
 
-function removeFromInventory (_event, row) {
+async function removeFromInventory (_event, row) {
   if (row !== undefined && row.getData() !== undefined) {
+    const rowData = row.getData()
+
+    // Try to remove from API
+    try {
+      // Use the inventory ID if available, otherwise use card_id with location/position
+      let url
+      if (rowData._inventory_id) {
+        url = `${API_BASE}/api/inventory/${rowData._inventory_id}`
+      } else {
+        url = `${API_BASE}/api/inventory/by-card/${encodeURIComponent(rowData.id)}?location=${encodeURIComponent(rowData.location)}&position=${rowData.pos}`
+      }
+
+      const response = await fetch(url, { method: "DELETE" })
+      if (response.ok) {
+        console.log("Removed from inventory via API")
+      } else {
+        console.log("API remove failed")
+      }
+    } catch (error) {
+      console.log("Could not remove from API:", error.message)
+    }
+
     row.delete()
   }
 }
@@ -359,6 +468,25 @@ async function saveInventory (_event) {
   inventory.showColumn("id")
   inventory.download("json", "inventory_mtg.json")
   inventory.hideColumn("id")
+}
+
+async function loadInventoryFromAPI() {
+  try {
+    const response = await fetch(`${API_BASE}/api/inventory/export`)
+    if (response.ok) {
+      const inventoryData = await response.json()
+      inventory.setData(inventoryData)
+      manager.setData(inventoryData)
+      if (inventoryData.length > 0) {
+        currentLocation = inventoryData[0]["location"]
+        document.getElementById("location").value = currentLocation
+        currentPosition = inventoryData[0]["pos"] + 1
+      }
+      console.log("Reloaded inventory from API")
+    }
+  } catch (error) {
+    console.log("Could not reload inventory from API:", error.message)
+  }
 }
 
 async function fetchImage (card_id, version = "small") {
