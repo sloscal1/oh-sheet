@@ -9,17 +9,48 @@
 // TODO: Shift+Enter takes the top row of the active data DONE
 // TOOD: Sort order needs to be set  (using arrows) DONE
 // TODO: Handle searching around stopwords DONE
+// TODO: Add tab for Adding and Movement DONE
+// TODO: Movement tab has cards being editable. When this happens we need to check to see if it's going to a new
+// place and then we need to track the next Position
+// TODO: Inventory needs to update the management table in parallel
+// TODO: Movement tab needs current location
+// TODO: "Inventory Location" -> "Updated Location Tag"
+// TODO: What to do when there are multiples?
+// TODO: I need a card condition label  DONE
+
 let full_data
 let possible
 let inventory
+let manager
 let currentLocation = "somewhere"
 let currentPosition = 1
 let activeRow = -1
 let paginationSize = 10
 let keepers = []
 let entered = false
+let imgTimeout = 5000
+let dneBlob
 
-async function load_data () {
+
+function customCNHeaderFilter(headerValue, rowValue, _rowData, _filterParams){
+    //headerValue - the value of the header filter element
+    //rowValue - the value of the column in this row
+    //rowData - the data for the row being filtered
+    //filterParams - params object passed to the headerFilterFuncParams property
+    if (headerValue.slice(0, 1) === "="){
+      return rowValue == headerValue.slice(1)
+    }
+    else if (headerValue.slice(0, 1) === ">"){
+      return rowValue > headerValue.slice(1)
+    }
+    else if (headerValue.slice(0, 1) === "<"){
+      return rowValue < headerValue.slice(1)
+    }
+    return true
+}
+
+async function load_data() {
+  // await fetch("./inventory_clean.json")
   await fetch("./mtg_possible_20240407_clean.json")
     .then(response => response.json())
     .then(json => {
@@ -63,8 +94,8 @@ async function load_data () {
         title: "Collector Number",
         field: "collector_number",
         headerFilter: "input",
-        headerFilterFunc: "like"
-      }
+        headerFilterFunc: customCNHeaderFilter,
+      },
     ],
     columnDefaults: {
       headerFilter: "list",
@@ -118,12 +149,67 @@ async function load_data () {
         field: "collector_number",
         headerFilter: "input",
         headerFilterFunc: "like"
+      },
+      {
+        title: "Condition",
+        field: "condition",
+        headerFilter: "input",
+        validator: ["required", "in:near mint|lightly played|played|heavily played|damaged"],
+        editable: true,
+      }
+    ],
+    downloadRowRange: "all"
+  })
+  manager = new Tabulator("#manager", {
+    data: full_data.slice(0, 1), //assign data to table
+    layout: "fitData", //fit columns to width of table (optional)
+    pagination: true,
+    paginationSize: 100,
+    columns: [
+      {
+        title: "Location",
+        field: "location",
+        headerFilter: "input",
+        headerFilterFunc: "like"
+      },
+      { title: "Id", field: "id"},
+      { title: "Position", field: "pos" },
+      {
+        title: "Name",
+        field: "name",
+        headerFilter: "input",
+        // headerFilterFunc:"like",
+        width: "250"
+      },
+      {
+        title: "Set",
+        field: "set"
+      },
+      { title: "Lang", field: "lang" },
+      { title: "Finishes", field: "finishes" },
+      { title: "Promo", field: "promo" },
+      { title: "Border Color", field: "border_color" },
+      { title: "Promo Types", field: "promo_types" },
+      { title: "Full Art", field: "full_art" },
+      {
+        title: "Collector Number",
+        field: "collector_number",
+        headerFilter: "input",
+        headerFilterFunc: "like"
+      },
+      {
+        title: "Condition",
+        field: "condition",
+        headerFilter: "input",
+        validator: ["required", "in:near mint|lightly played|played|heavily played|damaged"],
+        editable: true,
       }
     ],
     downloadRowRange: "all"
   })
   possible.on("rowClick", addToInventory)
   inventory.on("tableBuilt", finalLoad)
+  manager.on("tableBuilt", inventoryFinalLoad)
   inventory.on("rowClick", removeFromInventory)
   const loc = document.getElementById("location")
   loc.addEventListener("keyup", event => {
@@ -140,9 +226,24 @@ async function load_data () {
   document.getElementById("myfile").addEventListener("change", event => {
     parse_json(event).then(new_data => {
       inventory.setData(new_data)
+      manager.setData(new_data)
       currentLocation = new_data[0]["location"]
       document.getElementById("location").value = currentLocation
       currentPosition = new_data[0]["pos"] + 1
+      dest = document.getElementById("destination")
+
+      const values = new Set([])
+      for(const row of new_data)
+        values.add(row["location"])
+
+      const options = [...values]
+      options.sort()
+      for (var i = 0; i <= options.length; i++){
+        var opt = document.createElement('option');
+        opt.value = i;
+        opt.innerHTML = options[i];
+        dest.appendChild(opt);
+      }
     })
   })
   document.addEventListener("keydown", event => {
@@ -198,33 +299,31 @@ async function parse_json (event) {
   })
 }
 
-function finalLoad (_event) {
-  possible.on("dataFiltered", function (_filters, rows) {
-    const images = []
-    if (rows.length === 1) {
-      if (document.getElementById("images").children.length > 1) {
-        document.getElementById("images").textContent = ""
-        rows.map(element => {
-          images.push(downloadImage(element._row.data))
-        })
+async function onDataFiltered(_filters, rows){
+    const imgDiv = document.getElementById("images")
+    imgDiv.innerText = ""
+    if (rows.length <= 10 && rows.length > 1){
+      for (const row of rows){
+        let resp = await downloadImage(row._row.data)
+        imgDiv.append(resp)
       }
-    } else if (rows.length <= 10) {
-      document.getElementById("images").textContent = ""
-      rows.map(element => {
-        images.push(downloadImage(element._row.data))
-      })
     }
-    if (images.length > 0){
-      const img_div = document.getElementById("images")
-      images.forEach(el => el.then(result => img_div.appendChild(result)))
-    }
-  })
+}
+async function finalLoad (_event) {
+  possible.on("dataFiltered", await onDataFiltered)
   possible.on("pageLoaded", _pageno => activeRow = -1)
   possible.setHeaderFilterFocus("name")
 
   inventory.setData([])
   inventory.hideColumn("id")
-  inventory.on("dataChanged", _data => {possible.refreshFilter()})
+  // inventory.on("dataChanged", _data => {possible.refreshFilter()})
+  const dneData = await fetch("./dne.png")
+  dneBlob = await dneData.blob()
+}
+
+async function inventoryFinalLoad (_event) {
+  manager.setData([])
+  manager.hideColumn("id")
 }
 
 function _addToInventory (rowData) {
@@ -232,6 +331,9 @@ function _addToInventory (rowData) {
   new_data["location"] = currentLocation
   new_data["pos"] = currentPosition
   currentPosition += 1
+  console.log(new_data["condition"])
+  new_data["condition"] = document.getElementById("condition").value
+  console.log(new_data["condition"])
   inventory.addRow(new_data, true)
   activeRow = -1
   possible.deselectRow()
@@ -261,14 +363,19 @@ async function saveInventory (_event) {
 
 async function fetchImage (card_id, version = "small") {
   const url = `https://api.scryfall.com/cards/${card_id}?format=image&version=${version}`
-  const response = await fetch(url)
-  const blob = await response.blob()
-
+  let blob = dneBlob
+  try{
+    const response = await fetch(url, { signal: AbortSignal.timeout(imgTimeout) })
+    blob = await response.blob()
+  }
+  catch{
+    console.log("Missing img: " + card_id)
+  }
   return blob
 }
 
 async function downloadImage (data, version = "small") {
-  await new Promise(r => setTimeout(r, 100)) // Per Scryfall guidelines
+  await new Promise(r => setTimeout(r, 50)) // Per Scryfall guidelines
   const imageBlob = await fetchImage(data.id.slice(0, -2), version)
   const imageBase64 = URL.createObjectURL(imageBlob)
   const new_el = document.createElement("img")
@@ -285,4 +392,14 @@ async function downloadImage (data, version = "small") {
     _addToInventory(JSON.parse(event.target.getAttribute("data")))
   })
   return new_el
+}
+
+function showTab(tabName){
+  tabs = [...document.getElementsByClassName("tab_section")]
+  console.log(tabs)
+  for (const tab of tabs){
+    console.log(tab)
+    tab.style.display = "none"
+  }
+  document.getElementById(tabName).style.display = "block"
 }

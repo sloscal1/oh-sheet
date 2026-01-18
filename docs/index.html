@@ -8,6 +8,11 @@
         <script type="text/javascript" src="https://unpkg.com/tabulator-tables@5.5.0/dist/js/tabulator.min.js"></script>
     </head>
     <body onload="load_data()">
+      <div class="w3-bar w3-black">
+        <button class="w3-bar-item w3-button" onclick="showTab('new_cards')">New Cards</button>
+        <button class="w3-bar-item w3-button" onclick="showTab('inventory_management')">Inventory</button>
+      </div>
+      <div id="new_cards" class="tab_section">
         <div id="autocompletes"></div>
         <div id="filters"></div>
         <div class="col mh-100 float-left" id="main">
@@ -17,11 +22,28 @@
         <label for="myfile">Select a file:</label>
         <input type="file" id="myfile" name="myfile">
         <input id="location" placeholder="Inventory Location"></input>
+        <label>Card Condition</label>
+        <select name="Condition" id="condition">
+          <option value="near mint">near mint</option>
+          <option value="lightly played">lightly played</option>
+          <option value="played">played</option>
+          <option value="heavily played">heavily played</option>
+          <option value="damaged">damaged</option>
+        </select>
         <div class="col mh-100 float-left" id="second_main">
           <div id="inventory" tabindex="-1"></div>
         </div>
         <script type="text/javascript" src="inventory.js"></script>
         <button id="save" type="button" onclick="saveInventory()">Save Inventory</button>
+      </div>
+      <div id="inventory_management" class="tab_section" style="display:none;">
+        <label>Destination: </label>
+        <select name="Destination" id="destination">
+        </select>
+        <div class="col mh-100 float-left" id="inventory_main">
+          <div id="manager" tabindex="-1"></div>
+        </div>
+      </div>
     </body>
 
 </html>
