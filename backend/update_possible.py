@@ -17,6 +17,7 @@ USEFUL_COLS = [
     "layout",
     "name",
     "set",
+    "set_name",
     "finishes",
     "promo",
     "border_color",

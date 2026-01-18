@@ -515,6 +515,8 @@ async function downloadImage (data, version = "small") {
   else if (cardType == "e")
     className = "etched-finish"
   new_el.className = className
+  const setDisplay = data.set_name ? `${data.set_name} (${data.set})` : data.set
+  new_el.title = `Set: ${setDisplay} | Finish: ${data.finishes} | #${data.collector_number}`
   new_el.setAttribute("data", JSON.stringify(data))
   new_el.addEventListener("click", event => {
     _addToInventory(JSON.parse(event.target.getAttribute("data")))
