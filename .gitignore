@@ -3,3 +3,4 @@
 dist/*.tar.gz
 __pycache__
 **/*.egg-info
+data/*.json
