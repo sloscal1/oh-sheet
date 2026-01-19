@@ -228,6 +228,11 @@ async function load_data() {
   const loc = document.getElementById("location")
   loc.addEventListener("keyup", async event => {
     currentLocation = event.target.value
+    // Auto-collapse toolbar once location is set
+    if (currentLocation.length > 0) {
+      collapseToolbar()
+      saveLocationToCookie()
+    }
     // Try to get next position from API
     try {
       const response = await fetch(`${API_BASE}/api/inventory/next-position?location=${encodeURIComponent(currentLocation)}`)
@@ -269,6 +274,8 @@ async function load_data() {
         opt.innerHTML = options[i];
         dest.appendChild(opt);
       }
+      updateInventoryCount()
+      collapseToolbar()
     })
   })
   document.addEventListener("keydown", event => {
@@ -366,6 +373,8 @@ async function finalLoad (_event) {
           dest.appendChild(opt);
         }
         console.log("Loaded inventory from API")
+        updateInventoryCount()
+        collapseToolbar()
       } else {
         inventory.setData([])
       }
@@ -377,10 +386,16 @@ async function finalLoad (_event) {
     inventory.setData([])
   }
 
+  updateInventoryCount()
   inventory.hideColumn("id")
   // inventory.on("dataChanged", _data => {possible.refreshFilter()})
   const dneData = await fetch("./dne.png")
   dneBlob = await dneData.blob()
+
+  // Load saved location from cookie if no inventory was loaded
+  if (inventory.getData().length === 0) {
+    await loadLocationFromCookie()
+  }
 }
 
 async function inventoryFinalLoad (_event) {
@@ -422,6 +437,7 @@ async function _addToInventory (rowData) {
 
   currentPosition += 1
   inventory.addRow(new_data, true)
+  updateInventoryCount()
   activeRow = -1
   possible.deselectRow()
   const img_div = document.getElementById("images")
@@ -461,6 +477,7 @@ async function removeFromInventory (_event, row) {
     }
 
     row.delete()
+    updateInventoryCount()
   }
 }
 
@@ -526,10 +543,96 @@ async function downloadImage (data, version = "small") {
 
 function showTab(tabName){
   tabs = [...document.getElementsByClassName("tab_section")]
-  console.log(tabs)
   for (const tab of tabs){
-    console.log(tab)
     tab.style.display = "none"
   }
-  document.getElementById(tabName).style.display = "block"
+  document.getElementById(tabName).style.display = "flex"
+
+  // Update active button state
+  const buttons = document.querySelectorAll('.w3-bar-item.w3-button')
+  buttons.forEach(btn => btn.classList.remove('active'))
+  event.target.classList.add('active')
+}
+
+function toggleInventoryPanel() {
+  const panel = document.getElementById('inventory-panel')
+  const overlay = document.getElementById('panel-overlay')
+  panel.classList.toggle('open')
+  overlay.classList.toggle('open')
+}
+
+function updateInventoryCount() {
+  const countEl = document.getElementById('inventory-count')
+  if (countEl && inventory) {
+    const count = inventory.getData().length
+    countEl.textContent = count
+  }
+}
+
+function collapseToolbar() {
+  const wrapper = document.getElementById('toolbar-wrapper')
+  if (wrapper && !wrapper.classList.contains('collapsed')) {
+    wrapper.classList.add('collapsed')
+  }
+}
+
+function expandToolbar() {
+  const wrapper = document.getElementById('toolbar-wrapper')
+  if (wrapper) {
+    wrapper.classList.remove('collapsed')
+  }
+}
+
+// Cookie utilities
+function setCookie(name, value, days = 365) {
+  const expires = new Date(Date.now() + days * 864e5).toUTCString()
+  document.cookie = `${name}=${encodeURIComponent(value)}; expires=${expires}; path=/; SameSite=Strict`
+}
+
+function getCookie(name) {
+  const cookies = document.cookie.split('; ')
+  for (const cookie of cookies) {
+    const [key, val] = cookie.split('=')
+    if (key === name) {
+      return decodeURIComponent(val)
+    }
+  }
+  return null
+}
+
+function saveLocationToCookie() {
+  if (currentLocation) {
+    setCookie('mtg_inventory_location', currentLocation)
+  }
+}
+
+async function loadLocationFromCookie() {
+  const savedLocation = getCookie('mtg_inventory_location')
+  if (savedLocation) {
+    currentLocation = savedLocation
+    document.getElementById('location').value = savedLocation
+
+    // Try to get next position from API
+    try {
+      const response = await fetch(`${API_BASE}/api/inventory/next-position?location=${encodeURIComponent(currentLocation)}`)
+      if (response.ok) {
+        const data = await response.json()
+        currentPosition = data.next_position
+        return
+      }
+    } catch (error) {
+      // Fall back to local calculation
+    }
+
+    // Local fallback
+    if (inventory) {
+      let matched = inventory.searchData("location", "=", currentLocation)
+      currentPosition = 1
+      if (matched.length !== 0) {
+        currentPosition = matched.sort((a, b) => a.pos > b.pos)[0].pos + 1
+      }
+    }
+
+    collapseToolbar()
+  }
 }
