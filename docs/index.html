@@ -39,7 +39,13 @@
             </select>
           </div>
 
-          <button id="save" type="button" onclick="saveInventory()">Save Inventory</button>
+          <button id="save" type="button" onclick="saveInventory()">Save JSON</button>
+
+          <div class="toolbar-group export-group">
+            <label>Export:</label>
+            <button type="button" onclick="exportDeckbox()" class="btn-secondary">Deckbox</button>
+            <button type="button" onclick="exportMtggoldfish()" class="btn-secondary">MTGGoldfish</button>
+          </div>
 
           <!-- Mobile inventory toggle -->
           <button id="inventory-toggle" class="inventory-toggle" onclick="toggleInventoryPanel()">

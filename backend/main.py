@@ -1,8 +1,12 @@
 from fastapi import FastAPI, Depends, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from sqlalchemy import or_, func
 from typing import Optional, List
+from collections import defaultdict
+import csv
+import io
 import re
 
 from database import get_db, Card, InventoryItem, init_db
@@ -373,3 +377,158 @@ def reindex_location(
         "message": f"Reindexed {len(items)} cards in '{location}' from position 1 to {len(items)}",
         "divider_cards": divider_cards,
     }
+
+
+# Language code to full name mapping
+LANGUAGE_MAP = {
+    "en": "English",
+    "ja": "Japanese",
+    "ph": "Phyrexian",
+    "es": "Spanish",
+    "fr": "French",
+    "de": "German",
+    "it": "Italian",
+    "pt": "Portuguese",
+    "ko": "Korean",
+    "ru": "Russian",
+    "zhs": "Chinese Simplified",
+    "zht": "Chinese Traditional",
+}
+
+# Condition mapping to Deckbox format
+CONDITION_MAP = {
+    "near mint": "Near Mint",
+    "lightly played": "Lightly Played",
+    "played": "Played",
+    "heavily played": "Heavily Played",
+    "damaged": "Damaged",
+}
+
+
+@app.get("/api/inventory/export/deckbox")
+def export_inventory_deckbox(db: Session = Depends(get_db)):
+    """
+    Export inventory in Deckbox CSV format.
+    Format: Count,Tradelist Count,Name,Edition,Card Number,Condition,Language,Foil,Signed,Artist Proof,Altered Art,Mis
+
+    The Mis (Miscellaneous) field contains location and finish type for reference.
+    """
+    items = db.query(InventoryItem).join(Card).order_by(
+        InventoryItem.location, InventoryItem.position
+    ).all()
+
+    # Aggregate by unique card characteristics + condition + location
+    aggregated = defaultdict(lambda: {"count": 0, "locations": []})
+
+    for item in items:
+        card = item.card
+        # Key includes all identifying factors
+        key = (
+            card.name,
+            card.set,
+            card.collector_number,
+            card.lang,
+            card.finishes,
+            item.condition,
+        )
+        aggregated[key]["count"] += 1
+        aggregated[key]["locations"].append(f"{item.location}:{item.position}")
+        aggregated[key]["card"] = card
+        aggregated[key]["condition"] = item.condition
+
+    output = io.StringIO()
+    writer = csv.writer(output)
+
+    # Deckbox header
+    writer.writerow([
+        "Count", "Tradelist Count", "Name", "Edition", "Card Number",
+        "Condition", "Language", "Foil", "Signed", "Artist Proof", "Altered Art", "Mis"
+    ])
+
+    for key, data in aggregated.items():
+        card = data["card"]
+        condition = data["condition"]
+
+        # Determine foil status
+        is_foil = card.finishes in ("foil", "etched")
+
+        # Build miscellaneous field with location and finish details
+        locations_str = "; ".join(data["locations"])
+        mis_parts = [f"Locations: {locations_str}"]
+        if card.finishes == "etched":
+            mis_parts.append("Finish: etched")
+        mis_field = " | ".join(mis_parts)
+
+        writer.writerow([
+            data["count"],                              # Count
+            0,                                          # Tradelist Count
+            card.name,                                  # Name
+            card.set.upper(),                           # Edition (set code)
+            card.collector_number.lstrip("0"),          # Card Number (strip leading zeros)
+            CONDITION_MAP.get(condition, condition),    # Condition
+            LANGUAGE_MAP.get(card.lang, card.lang),     # Language
+            "foil" if is_foil else "",                  # Foil
+            "",                                         # Signed
+            "",                                         # Artist Proof
+            "",                                         # Altered Art
+            mis_field,                                  # Mis (locations + finish)
+        ])
+
+    output.seek(0)
+    return StreamingResponse(
+        iter([output.getvalue()]),
+        media_type="text/csv",
+        headers={"Content-Disposition": "attachment; filename=inventory_deckbox.csv"}
+    )
+
+
+@app.get("/api/inventory/export/mtggoldfish")
+def export_inventory_mtggoldfish(db: Session = Depends(get_db)):
+    """
+    Export inventory in MTGGoldfish CSV format.
+    Format: Card Name,Quantity,ID #,Rarity,Set,Collector #,Premium
+
+    Note: This format does not support language, so non-English cards
+    may not import correctly into MTGGoldfish.
+    """
+    items = db.query(InventoryItem).join(Card).all()
+
+    # Aggregate by card name + set + collector number + finish
+    aggregated = defaultdict(lambda: {"count": 0, "card": None})
+
+    for item in items:
+        card = item.card
+        key = (card.name, card.set, card.collector_number, card.finishes)
+        aggregated[key]["count"] += 1
+        aggregated[key]["card"] = card
+
+    output = io.StringIO()
+    writer = csv.writer(output)
+
+    # MTGGoldfish header
+    writer.writerow([
+        "Card Name", "Quantity", "ID #", "Rarity", "Set", "Collector #", "Premium"
+    ])
+
+    for key, data in aggregated.items():
+        card = data["card"]
+
+        # Premium: Yes for foil/etched, No for nonfoil
+        premium = "Yes" if card.finishes in ("foil", "etched") else "No"
+
+        writer.writerow([
+            card.name,                              # Card Name
+            data["count"],                          # Quantity
+            "",                                     # ID # (optional)
+            "",                                     # Rarity (optional)
+            card.set.upper(),                       # Set
+            card.collector_number.lstrip("0"),      # Collector #
+            premium,                                # Premium
+        ])
+
+    output.seek(0)
+    return StreamingResponse(
+        iter([output.getvalue()]),
+        media_type="text/csv",
+        headers={"Content-Disposition": "attachment; filename=inventory_mtggoldfish.csv"}
+    )

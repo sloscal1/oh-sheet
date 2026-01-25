@@ -327,6 +327,30 @@ button:active, #save:active {
   transform: translateY(0);
 }
 
+/* Secondary button style */
+button.btn-secondary {
+  background: linear-gradient(180deg, var(--bg-input) 0%, #1a1a2e 100%);
+  color: var(--text-primary);
+  border: 1px solid var(--border-color);
+  font-family: 'Inter', sans-serif;
+  font-weight: 500;
+  font-size: 0.8rem;
+  padding: 0.5rem 0.75rem;
+  text-transform: none;
+}
+
+button.btn-secondary:hover {
+  background: linear-gradient(180deg, #2d2d5a 0%, var(--bg-input) 100%);
+  border-color: var(--gold-dark);
+  color: var(--gold-light);
+}
+
+.export-group {
+  border-left: 1px solid var(--border-color);
+  padding-left: 1rem;
+  margin-left: 0.5rem;
+}
+
 /* File Input */
 input[type="file"] {
   background: var(--bg-card);

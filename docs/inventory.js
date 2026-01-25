@@ -606,6 +606,14 @@ function saveLocationToCookie() {
   }
 }
 
+function exportDeckbox() {
+  window.location.href = `${API_BASE}/api/inventory/export/deckbox`
+}
+
+function exportMtggoldfish() {
+  window.location.href = `${API_BASE}/api/inventory/export/mtggoldfish`
+}
+
 async function loadLocationFromCookie() {
   const savedLocation = getCookie('mtg_inventory_location')
   if (savedLocation) {
