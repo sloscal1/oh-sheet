@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+
+  <div class="popup-header">
+    <h1>⚡ Fast Inventory</h1>
+    <span class="version">v0.1.0</span>
+  </div>
+
+  <!-- ======== Auth section ======== -->
+  <div class="section" id="auth-section">
+    <div class="section-title">Account</div>
+
+    <!-- Logged-out: login form -->
+    <div id="login-form">
+      <div class="form-row">
+        <label for="email">Email</label>
+        <input type="email" id="email" placeholder="you@example.com">
+      </div>
+      <div class="form-row">
+        <label for="password">Password</label>
+        <input type="password" id="password" placeholder="EchoMTG password">
+      </div>
+      <div class="form-row" style="margin-top: 10px;">
+        <button class="btn btn-primary" id="login-btn">Login</button>
+      </div>
+      <div class="auth-error hidden" id="login-error"></div>
+    </div>
+
+    <!-- Logged-in: status -->
+    <div id="auth-status" class="auth-status hidden">
+      <span><span class="dot"></span><span class="user-email" id="user-email"></span></span>
+      <button class="btn btn-secondary btn-sm" id="logout-btn">Logout</button>
+    </div>
+  </div>
+
+  <!-- ======== Set cache section ======== -->
+  <div class="section disabled" id="cache-section">
+    <div class="section-title">Set Cache</div>
+
+    <div class="set-filter">
+      <input type="text" id="set-filter-input" placeholder="Filter sets...">
+    </div>
+
+    <div class="set-list" id="set-list">
+      <!-- Populated dynamically -->
+    </div>
+
+    <div class="set-actions" id="cache-actions">
+      <button class="btn btn-primary" id="cache-btn" disabled>Cache Selected (0)</button>
+    </div>
+
+    <div class="progress-container hidden" id="cache-progress">
+      <div class="progress-label" id="cache-progress-label">Caching...</div>
+      <div class="progress-bar"><div class="progress-fill" id="cache-progress-fill"></div></div>
+      <div class="set-actions" style="margin-top: 6px;">
+        <button class="btn btn-secondary btn-sm" id="cache-cancel-btn">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ======== Defaults section ======== -->
+  <div class="section disabled" id="defaults-section">
+    <div class="section-title">Defaults</div>
+    <div class="form-row-inline">
+      <div class="form-row">
+        <label for="default-condition">Condition</label>
+        <select id="default-condition">
+          <option value="NM" selected>Near Mint</option>
+          <option value="LP">Lightly Played</option>
+          <option value="MP">Moderately Played</option>
+          <option value="HP">Heavily Played</option>
+          <option value="D">Damaged</option>
+        </select>
+      </div>
+      <div class="form-row">
+        <label for="default-language">Language</label>
+        <select id="default-language">
+          <option value="EN" selected>English</option>
+          <option value="JA">Japanese</option>
+          <option value="ZHS">Chinese (S)</option>
+          <option value="ZHT">Chinese (T)</option>
+          <option value="FR">French</option>
+          <option value="DE">German</option>
+          <option value="IT">Italian</option>
+          <option value="KO">Korean</option>
+          <option value="PT">Portuguese</option>
+          <option value="RU">Russian</option>
+          <option value="ES">Spanish</option>
+        </select>
+      </div>
+    </div>
+  </div>
+
+  <!-- ======== Cached data section ======== -->
+  <div class="section disabled" id="cached-data-section">
+    <div class="section-title">Cached Data</div>
+    <div class="cache-summary" id="cache-summary">No sets cached</div>
+    <div id="cached-set-list">
+      <!-- Populated dynamically -->
+    </div>
+    <div class="clear-all-area hidden" id="clear-all-area">
+      <button class="btn btn-danger" id="clear-all-btn">Clear All Cache</button>
+    </div>
+  </div>
+
+  <script src="popup.js" type="module"></script>
+</body>
+</html>

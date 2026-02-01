@@ -1,0 +1,898 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>EchoMTG Fast Inventory – Overlay Wireframe</title>
+  <!--
+    ============================================================
+    WIREFRAME: In-page overlay for rapid card inventory entry
+    ============================================================
+    This is a static wireframe documenting the overlay UI that
+    will be injected into echomtg.com pages via Shadow DOM.
+
+    INTERACTIONS & STATE TRANSITIONS
+    ================================
+
+    PANEL STATES:
+    1. Collapsed — only the toggle tab is visible (gold tab on right edge)
+       - Click tab or press Ctrl+Shift+E → Expanded
+    2. Expanded — full panel visible, search input auto-focused
+       - Click tab or press Ctrl+Shift+E → Collapsed
+       - Escape when search is empty → Collapsed
+    3. Not authenticated — panel shows "Not logged in" with link to popup
+       - Login via popup → transitions to normal Expanded state
+
+    LOCATION & POSITION:
+    - Location tag: free-text input (e.g., "b5r1"), persisted to IndexedDB state
+    - Position: numeric, auto-increments after each successful add
+    - Position can be manually edited (click the number to type a new value)
+    - Both persist across browser sessions via IndexedDB
+
+    SEARCH FLOW:
+    1. User types in search input
+    2. After 100ms debounce, SEARCH_CARDS message sent to service worker
+    3. Results appear in dropdown (max 20 results)
+    4. Each result shows: card name, variant tags (badges), set code, collector #
+    5. Foil variants show a foil indicator icon/badge
+
+    KEYBOARD NAVIGATION (results list):
+    - ArrowDown: move selection down (wraps to top)
+    - ArrowUp: move selection up (wraps to bottom)
+    - Enter: add selected card to inventory
+    - Escape: clear search and results
+
+    ADD CARD FLOW:
+    1. User selects card (Enter or click)
+    2. Panel shows "Adding..." spinner on the selected result
+    3. Service worker: POST /inventory/add/batch → POST /notes/create
+    4. On success:
+       - Status bar updates: "✓ [Card Name] added" with fade-after-3s
+       - Position increments by 1
+       - Search input clears and re-focuses
+       - Session count increments
+    5. On failure:
+       - Status bar shows error: "✗ Failed to add [Card Name]" in red
+       - Search input retains value so user can retry
+
+    FOIL DROPDOWN:
+    - Options: Regular (default), Foil
+    - Persists between adds (sticky preference for current session)
+    - Saved to IndexedDB state
+
+    LANGUAGE DROPDOWN:
+    - Options: English (default), Japanese, Chinese (S), Chinese (T), French,
+      German, Italian, Korean, Portuguese, Russian, Spanish
+    - Default loaded from IndexedDB state (set via popup preferences)
+    - Persists between adds
+
+    DIVIDER EVERY:
+    - Positive integer input, defaults to 50
+    - When (position % dividerEvery) === 0, a visual divider alert appears
+      above the search input prompting the user to insert a physical divider
+    - The alert persists until the next card is added (position moves past the boundary)
+    - Persisted to IndexedDB state
+    - Set to 0 to disable divider reminders
+
+    SESSION COUNT:
+    - Tracks cards added since overlay was opened/page loaded
+    - Resets on page navigation
+  -->
+  <style>
+    /* ---- Page simulation (represents echomtg.com background) ---- */
+    body {
+      margin: 0;
+      background: #1a1a2e;
+      font-family: 'Inter', 'Segoe UI', sans-serif;
+      color: #e8e8e8;
+      min-height: 100vh;
+    }
+    .host-page-placeholder {
+      padding: 40px;
+      opacity: 0.3;
+      text-align: center;
+      margin-top: 200px;
+      font-size: 14px;
+      color: #a0a0b0;
+    }
+
+    /* ---- Overlay panel ---- */
+    .overlay-panel {
+      position: fixed;
+      bottom: 20px;
+      right: 20px;
+      width: 380px;
+      background: #0d0d0d;
+      border: 1px solid #2d2d5a;
+      border-radius: 8px;
+      box-shadow: 0 4px 24px rgba(0, 0, 0, 0.6);
+      font-family: 'Inter', 'Segoe UI', sans-serif;
+      color: #e8e8e8;
+      z-index: 999999;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    /* ---- Header / Title bar ---- */
+    .overlay-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 8px 12px;
+      background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+      border-bottom: 1px solid #2d2d5a;
+      cursor: move; /* draggable in future */
+    }
+    .overlay-title {
+      font-family: 'Cinzel', serif;
+      font-size: 13px;
+      color: #c9a227;
+      letter-spacing: 0.5px;
+      text-shadow: 0 1px 3px rgba(0,0,0,0.5);
+    }
+    .collapse-btn {
+      background: none;
+      border: 1px solid #2d2d5a;
+      color: #a0a0b0;
+      font-size: 16px;
+      cursor: pointer;
+      padding: 2px 8px;
+      border-radius: 4px;
+      line-height: 1;
+    }
+    .collapse-btn:hover {
+      color: #c9a227;
+      border-color: #c9a227;
+    }
+
+    /* ---- Location & Position bar ---- */
+    .location-bar {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 12px;
+      background: #111122;
+      border-bottom: 1px solid #1e1e3a;
+    }
+    .location-bar label {
+      font-size: 11px;
+      color: #a0a0b0;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      white-space: nowrap;
+    }
+    .location-input {
+      width: 80px;
+      padding: 4px 8px;
+      background: #0d0d0d;
+      border: 1px solid #2d2d5a;
+      border-radius: 4px;
+      color: #e8e8e8;
+      font-size: 13px;
+      font-family: monospace;
+    }
+    .location-input:focus {
+      border-color: #c9a227;
+      outline: none;
+    }
+    .position-group {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+    .position-value {
+      font-family: monospace;
+      font-size: 15px;
+      color: #f0d67b;
+      min-width: 30px;
+      text-align: center;
+      padding: 3px 6px;
+      background: #0d0d0d;
+      border: 1px solid transparent;
+      border-radius: 4px;
+      cursor: text;
+    }
+    .position-value:hover {
+      border-color: #2d2d5a;
+    }
+    .divider-input {
+      width: 40px;
+      padding: 4px 4px;
+      background: #0d0d0d;
+      border: 1px solid #2d2d5a;
+      border-radius: 4px;
+      color: #e8e8e8;
+      font-size: 12px;
+      font-family: monospace;
+      text-align: center;
+    }
+    .divider-input:focus {
+      border-color: #c9a227;
+      outline: none;
+    }
+
+    /* ---- Card options bar (foil, language) ---- */
+    .options-bar {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 12px;
+      background: #0e0e1a;
+      border-bottom: 1px solid #1e1e3a;
+    }
+    .options-bar label {
+      font-size: 11px;
+      color: #a0a0b0;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      white-space: nowrap;
+    }
+    .option-select {
+      padding: 4px 6px;
+      background: #0d0d0d;
+      border: 1px solid #2d2d5a;
+      border-radius: 4px;
+      color: #e8e8e8;
+      font-size: 11px;
+    }
+    .option-select:focus {
+      border-color: #c9a227;
+      outline: none;
+    }
+
+    /* ---- Divider alert ---- */
+    .divider-alert {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin: 0 12px;
+      padding: 8px 10px;
+      background: linear-gradient(135deg, #3a2a00, #2a1f00);
+      border: 1px solid #c9a227;
+      border-radius: 4px;
+      font-size: 12px;
+      color: #f0d67b;
+      animation: divider-pulse 1.5s ease-in-out infinite alternate;
+    }
+    @keyframes divider-pulse {
+      from { border-color: #c9a227; box-shadow: 0 0 4px rgba(201, 162, 39, 0.2); }
+      to   { border-color: #f0d67b; box-shadow: 0 0 12px rgba(201, 162, 39, 0.4); }
+    }
+    .divider-alert-icon {
+      font-size: 18px;
+      flex-shrink: 0;
+    }
+    .divider-alert-text {
+      line-height: 1.3;
+    }
+    .divider-alert-text strong {
+      color: #fff;
+    }
+
+    /* ---- Search input ---- */
+    .search-container {
+      padding: 8px 12px;
+    }
+    .search-input {
+      width: 100%;
+      padding: 8px 10px;
+      background: #0d0d0d;
+      border: 1px solid #2d2d5a;
+      border-radius: 4px;
+      color: #e8e8e8;
+      font-size: 14px;
+      box-sizing: border-box;
+    }
+    .search-input:focus {
+      border-color: #c9a227;
+      outline: none;
+      box-shadow: 0 0 0 2px rgba(201, 162, 39, 0.15);
+    }
+    .search-input::placeholder {
+      color: #555;
+    }
+
+    /* ---- Results list ---- */
+    .results-list {
+      max-height: 280px;
+      overflow-y: auto;
+      margin: 0 12px 8px;
+      border: 1px solid #1e1e3a;
+      border-radius: 4px;
+      background: #0a0a15;
+    }
+    .results-list::-webkit-scrollbar {
+      width: 6px;
+    }
+    .results-list::-webkit-scrollbar-track {
+      background: #0a0a15;
+    }
+    .results-list::-webkit-scrollbar-thumb {
+      background: #2d2d5a;
+      border-radius: 3px;
+    }
+    .result-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 10px;
+      cursor: pointer;
+      border-bottom: 1px solid #1a1a2e;
+      transition: background 0.1s;
+    }
+    .result-item:last-child {
+      border-bottom: none;
+    }
+    .result-item:hover {
+      background: #1a1a2e;
+    }
+    .result-item.selected {
+      background: #1e2a4a;
+      border-left: 2px solid #c9a227;
+      padding-left: 8px;
+    }
+    .result-thumb {
+      width: 32px;
+      height: 44px;
+      background: #1a1a2e;
+      border-radius: 2px;
+      flex-shrink: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 9px;
+      color: #555;
+      overflow: hidden;
+    }
+    .result-thumb img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+    .result-info {
+      flex: 1;
+      min-width: 0;
+    }
+    .result-name {
+      font-size: 13px;
+      color: #e8e8e8;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .result-meta {
+      font-size: 11px;
+      color: #777;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      margin-top: 2px;
+    }
+    .badge {
+      display: inline-block;
+      padding: 1px 5px;
+      border-radius: 3px;
+      font-size: 9px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.3px;
+    }
+    .badge-variant {
+      background: #2a1f4e;
+      color: #b39ddb;
+    }
+    .badge-foil {
+      background: linear-gradient(135deg, #2d4a3e, #1a3a4a);
+      color: #81d4a8;
+    }
+    .badge-rarity-mythic {
+      color: #e67e22;
+    }
+    .badge-rarity-rare {
+      color: #c9a227;
+    }
+
+    /* ---- Status bar ---- */
+    .status-bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 6px 12px;
+      background: #111122;
+      border-top: 1px solid #1e1e3a;
+      font-size: 11px;
+    }
+    .status-message {
+      color: #6fbf73;
+    }
+    .status-message.error {
+      color: #ef5350;
+    }
+    .session-count {
+      color: #a0a0b0;
+    }
+    .session-count strong {
+      color: #f0d67b;
+    }
+
+    /* ---- Collapsed state (toggle tab only) ---- */
+    .overlay-collapsed {
+      position: fixed;
+      bottom: 20px;
+      right: 0;
+      width: 36px;
+      height: 80px;
+      background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+      border: 1px solid #2d2d5a;
+      border-right: none;
+      border-radius: 8px 0 0 8px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      writing-mode: vertical-rl;
+      font-family: 'Cinzel', serif;
+      font-size: 11px;
+      color: #c9a227;
+      letter-spacing: 1px;
+      z-index: 999999;
+      box-shadow: -2px 2px 12px rgba(0,0,0,0.4);
+    }
+    .overlay-collapsed:hover {
+      border-color: #c9a227;
+      width: 40px;
+    }
+
+    /* ---- Demo layout ---- */
+    .wireframe-demo {
+      display: flex;
+      gap: 60px;
+      justify-content: center;
+      padding: 40px;
+      flex-wrap: wrap;
+    }
+    .demo-section {
+      text-align: center;
+    }
+    .demo-section h3 {
+      font-family: 'Cinzel', serif;
+      color: #c9a227;
+      font-size: 14px;
+      margin-bottom: 12px;
+    }
+    .demo-label {
+      font-size: 11px;
+      color: #777;
+      margin-top: 8px;
+    }
+
+    /* ---- Annotations ---- */
+    .annotation {
+      position: absolute;
+      font-size: 10px;
+      color: #c9a227;
+      background: rgba(201, 162, 39, 0.1);
+      border: 1px dashed #c9a227;
+      padding: 2px 6px;
+      border-radius: 3px;
+      pointer-events: none;
+      white-space: nowrap;
+    }
+  </style>
+</head>
+<body>
+
+  <div class="host-page-placeholder">
+    (echomtg.com page content would be here)
+  </div>
+
+  <!-- ============================================================
+       WIREFRAME SECTION 1: Collapsed state
+       The tab that sticks to the right edge when panel is minimized
+       ============================================================ -->
+  <div class="wireframe-demo" style="position: relative;">
+    <div class="demo-section">
+      <h3>Collapsed State</h3>
+      <div style="position: relative; width: 40px; height: 80px;">
+        <div class="overlay-collapsed" style="position: relative; right: auto; bottom: auto;">
+          ⚡ Echo
+        </div>
+      </div>
+      <div class="demo-label">Click or Ctrl+Shift+E to expand</div>
+    </div>
+  </div>
+
+  <!-- ============================================================
+       WIREFRAME SECTION 2: Expanded panel – empty state
+       Shown when search input is empty, no results displayed
+       ============================================================ -->
+  <div class="wireframe-demo">
+    <div class="demo-section">
+      <h3>Expanded – Empty State</h3>
+      <div class="overlay-panel" style="position: relative; bottom: auto; right: auto;">
+        <div class="overlay-header">
+          <span class="overlay-title">⚡ Fast Inventory</span>
+          <button class="collapse-btn" title="Collapse (Ctrl+Shift+E)">−</button>
+        </div>
+        <div class="location-bar">
+          <label>Loc</label>
+          <input class="location-input" type="text" value="b5r1" placeholder="tag">
+          <label>Pos</label>
+          <span class="position-value" title="Click to edit">42</span>
+          <label>Div</label>
+          <input class="divider-input" type="number" value="50" min="0" title="Insert divider every N cards (0 = off)">
+        </div>
+        <div class="options-bar">
+          <label>Foil</label>
+          <select class="option-select">
+            <option selected>Regular</option>
+            <option>Foil</option>
+          </select>
+          <label>Lang</label>
+          <select class="option-select">
+            <option selected>English</option>
+            <option>Japanese</option>
+            <option>Chinese (S)</option>
+            <option>Chinese (T)</option>
+            <option>French</option>
+            <option>German</option>
+            <option>Italian</option>
+            <option>Korean</option>
+            <option>Portuguese</option>
+            <option>Russian</option>
+            <option>Spanish</option>
+          </select>
+        </div>
+        <div class="search-container">
+          <input class="search-input" type="text" placeholder="Type card name to search...">
+        </div>
+        <div class="status-bar">
+          <span class="status-message" style="color: #555;">Ready</span>
+          <span class="session-count">Session: <strong>0</strong></span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================================================
+       WIREFRAME SECTION 3: Expanded panel – search results
+       Shown after user types, results returned from IndexedDB
+       ============================================================ -->
+  <div class="wireframe-demo">
+    <div class="demo-section">
+      <h3>Expanded – Search Results</h3>
+      <div class="overlay-panel" style="position: relative; bottom: auto; right: auto;">
+        <div class="overlay-header">
+          <span class="overlay-title">⚡ Fast Inventory</span>
+          <button class="collapse-btn" title="Collapse (Ctrl+Shift+E)">−</button>
+        </div>
+        <div class="location-bar">
+          <label>Loc</label>
+          <input class="location-input" type="text" value="b5r1" placeholder="tag">
+          <label>Pos</label>
+          <span class="position-value">42</span>
+          <label>Div</label>
+          <input class="divider-input" type="number" value="50" min="0">
+        </div>
+        <div class="options-bar">
+          <label>Foil</label>
+          <select class="option-select"><option selected>Regular</option><option>Foil</option></select>
+          <label>Lang</label>
+          <select class="option-select"><option selected>English</option></select>
+        </div>
+        <div class="search-container">
+          <input class="search-input" type="text" value="hide">
+        </div>
+        <div class="results-list">
+          <!-- Result 1: selected via arrow keys -->
+          <div class="result-item selected">
+            <div class="result-thumb"><img src="https://assets.echomtg.com/magic/cards/cropped/134185.hq.jpg" alt=""></div>
+            <div class="result-info">
+              <div class="result-name">Hidetsugu, Devouring Chaos</div>
+              <div class="result-meta">
+                <span class="badge badge-variant">Neon Red</span>
+                <span>NEO #429</span>
+                <span class="badge-rarity-rare">R</span>
+              </div>
+            </div>
+          </div>
+          <!-- Result 2 -->
+          <div class="result-item">
+            <div class="result-thumb" style="background: #1a1a2e;"></div>
+            <div class="result-info">
+              <div class="result-name">Hidetsugu, Devouring Chaos</div>
+              <div class="result-meta">
+                <span>NEO #99</span>
+                <span class="badge-rarity-rare">R</span>
+              </div>
+            </div>
+          </div>
+          <!-- Result 3: foil variant -->
+          <div class="result-item">
+            <div class="result-thumb" style="background: #1a1a2e;"></div>
+            <div class="result-info">
+              <div class="result-name">Hidetsugu, Devouring Chaos</div>
+              <div class="result-meta">
+                <span class="badge badge-foil">Foil Etched</span>
+                <span class="badge badge-variant">Showcase</span>
+                <span>NEO #418</span>
+                <span class="badge-rarity-rare">R</span>
+              </div>
+            </div>
+          </div>
+          <!-- Result 4 -->
+          <div class="result-item">
+            <div class="result-thumb" style="background: #1a1a2e;"></div>
+            <div class="result-info">
+              <div class="result-name">Hide in Plain Sight</div>
+              <div class="result-meta">
+                <span>CLB #91</span>
+              </div>
+            </div>
+          </div>
+          <!-- Result 5 -->
+          <div class="result-item">
+            <div class="result-thumb" style="background: #1a1a2e;"></div>
+            <div class="result-info">
+              <div class="result-name">Hideous Laughter</div>
+              <div class="result-meta">
+                <span>CHK #59</span>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="status-bar">
+          <span class="status-message" style="color: #777;">5 results</span>
+          <span class="session-count">Session: <strong>3</strong></span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================================================
+       WIREFRAME SECTION 4: Expanded panel – adding in progress
+       Shown while API call is in flight after user selects a card
+       ============================================================ -->
+  <div class="wireframe-demo">
+    <div class="demo-section">
+      <h3>Expanded – Adding In Progress</h3>
+      <div class="overlay-panel" style="position: relative; bottom: auto; right: auto;">
+        <div class="overlay-header">
+          <span class="overlay-title">⚡ Fast Inventory</span>
+          <button class="collapse-btn" title="Collapse (Ctrl+Shift+E)">−</button>
+        </div>
+        <div class="location-bar">
+          <label>Loc</label>
+          <input class="location-input" type="text" value="b5r1" placeholder="tag">
+          <label>Pos</label>
+          <span class="position-value">42</span>
+          <label>Div</label>
+          <input class="divider-input" type="number" value="50" min="0">
+        </div>
+        <div class="options-bar">
+          <label>Foil</label>
+          <select class="option-select"><option selected>Regular</option><option>Foil</option></select>
+          <label>Lang</label>
+          <select class="option-select"><option selected>English</option></select>
+        </div>
+        <div class="search-container">
+          <input class="search-input" type="text" value="hide" disabled style="opacity: 0.6;">
+          <!-- ^ Input disabled during add to prevent double-submit -->
+        </div>
+        <div class="results-list">
+          <div class="result-item selected" style="opacity: 0.7;">
+            <div class="result-thumb"><img src="https://assets.echomtg.com/magic/cards/cropped/134185.hq.jpg" alt=""></div>
+            <div class="result-info">
+              <div class="result-name">Hidetsugu, Devouring Chaos</div>
+              <div class="result-meta">
+                <span class="badge badge-variant">Neon Red</span>
+                <span>NEO #429</span>
+                <span class="badge-rarity-rare">R</span>
+              </div>
+            </div>
+            <span style="color: #c9a227; font-size: 11px; white-space: nowrap;">Adding…</span>
+          </div>
+        </div>
+        <div class="status-bar">
+          <span class="status-message" style="color: #c9a227;">Adding to inventory…</span>
+          <span class="session-count">Session: <strong>3</strong></span>
+        </div>
+      </div>
+      <div class="demo-label">Search input disabled. Selected card shows "Adding…" spinner. Status bar reflects in-flight state.</div>
+    </div>
+  </div>
+
+  <!-- ============================================================
+       WIREFRAME SECTION 5: Expanded panel – success feedback
+       Shown immediately after a card is successfully added
+       ============================================================ -->
+  <div class="wireframe-demo">
+    <div class="demo-section">
+      <h3>Expanded – After Successful Add</h3>
+      <div class="overlay-panel" style="position: relative; bottom: auto; right: auto;">
+        <div class="overlay-header">
+          <span class="overlay-title">⚡ Fast Inventory</span>
+          <button class="collapse-btn" title="Collapse (Ctrl+Shift+E)">−</button>
+        </div>
+        <div class="location-bar">
+          <label>Loc</label>
+          <input class="location-input" type="text" value="b5r1" placeholder="tag">
+          <label>Pos</label>
+          <span class="position-value">43</span>
+          <!-- ^ Position auto-incremented from 42 → 43 -->
+          <label>Div</label>
+          <input class="divider-input" type="number" value="50" min="0">
+        </div>
+        <div class="options-bar">
+          <label>Foil</label>
+          <select class="option-select"><option selected>Regular</option><option>Foil</option></select>
+          <label>Lang</label>
+          <select class="option-select"><option selected>English</option></select>
+        </div>
+        <div class="search-container">
+          <input class="search-input" type="text" placeholder="Type card name to search...">
+          <!-- ^ Cleared after add, re-focused for next card -->
+        </div>
+        <div class="status-bar">
+          <span class="status-message">✓ Hidetsugu, Devouring Chaos added → b5r1p42</span>
+          <span class="session-count">Session: <strong>4</strong></span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================================================
+       WIREFRAME SECTION 6: Divider alert
+       Shown when position % dividerEvery === 0 after an add
+       e.g., position hits 50, 100, 150, etc. (with dividerEvery=50)
+       Alert persists until the next card is added.
+       ============================================================ -->
+  <div class="wireframe-demo">
+    <div class="demo-section">
+      <h3>Expanded – Divider Alert (pos=50)</h3>
+      <div class="overlay-panel" style="position: relative; bottom: auto; right: auto;">
+        <div class="overlay-header">
+          <span class="overlay-title">⚡ Fast Inventory</span>
+          <button class="collapse-btn" title="Collapse (Ctrl+Shift+E)">−</button>
+        </div>
+        <div class="location-bar">
+          <label>Loc</label>
+          <input class="location-input" type="text" value="b5r1" placeholder="tag">
+          <label>Pos</label>
+          <span class="position-value" style="color: #f0d67b; font-weight: bold;">50</span>
+          <!-- ^ Position just hit the divider boundary -->
+          <label>Div</label>
+          <input class="divider-input" type="number" value="50" min="0">
+        </div>
+        <div class="options-bar">
+          <label>Foil</label>
+          <select class="option-select"><option selected>Regular</option><option>Foil</option></select>
+          <label>Lang</label>
+          <select class="option-select"><option selected>English</option></select>
+        </div>
+        <div class="divider-alert">
+          <span class="divider-alert-icon">📋</span>
+          <span class="divider-alert-text"><strong>Insert a divider</strong> — position 50 reached (every 50 cards)</span>
+        </div>
+        <div class="search-container">
+          <input class="search-input" type="text" placeholder="Type card name to search...">
+          <!-- ^ Search still works, alert is informational only -->
+        </div>
+        <div class="status-bar">
+          <span class="status-message">✓ Last card added → b5r1p49</span>
+          <span class="session-count">Session: <strong>50</strong></span>
+        </div>
+      </div>
+      <div class="demo-label">Pulsing gold alert when position hits a divider boundary. User inserts a physical divider, then continues adding. Alert disappears on next add.</div>
+    </div>
+  </div>
+
+  <!-- ============================================================
+       WIREFRAME SECTION 7: Error state
+       Shown when add fails (API error, network issue, etc.)
+       ============================================================ -->
+  <div class="wireframe-demo">
+    <div class="demo-section">
+      <h3>Expanded – Error State</h3>
+      <div class="overlay-panel" style="position: relative; bottom: auto; right: auto;">
+        <div class="overlay-header">
+          <span class="overlay-title">⚡ Fast Inventory</span>
+          <button class="collapse-btn" title="Collapse (Ctrl+Shift+E)">−</button>
+        </div>
+        <div class="location-bar">
+          <label>Loc</label>
+          <input class="location-input" type="text" value="b5r1" placeholder="tag">
+          <label>Pos</label>
+          <span class="position-value">42</span>
+          <!-- ^ Position NOT incremented on failure -->
+          <label>Div</label>
+          <input class="divider-input" type="number" value="50" min="0">
+        </div>
+        <div class="options-bar">
+          <label>Foil</label>
+          <select class="option-select"><option selected>Regular</option><option>Foil</option></select>
+          <label>Lang</label>
+          <select class="option-select"><option selected>English</option></select>
+        </div>
+        <div class="search-container">
+          <input class="search-input" type="text" value="hide">
+          <!-- ^ Search retained so user can retry -->
+        </div>
+        <div class="status-bar">
+          <span class="status-message error">✗ Failed to add — API error 500 (retry?)</span>
+          <span class="session-count">Session: <strong>3</strong></span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================================================
+       WIREFRAME SECTION 7: No cached sets
+       Logged in but no sets have been cached yet
+       ============================================================ -->
+  <div class="wireframe-demo">
+    <div class="demo-section">
+      <h3>Expanded – No Cached Sets</h3>
+      <div class="overlay-panel" style="position: relative; bottom: auto; right: auto;">
+        <div class="overlay-header">
+          <span class="overlay-title">⚡ Fast Inventory</span>
+          <button class="collapse-btn" title="Collapse (Ctrl+Shift+E)">−</button>
+        </div>
+        <div class="location-bar">
+          <label>Loc</label>
+          <input class="location-input" type="text" value="" placeholder="tag">
+          <label>Pos</label>
+          <span class="position-value">1</span>
+          <label>Div</label>
+          <input class="divider-input" type="number" value="50" min="0">
+        </div>
+        <div class="options-bar">
+          <label>Foil</label>
+          <select class="option-select"><option selected>Regular</option><option>Foil</option></select>
+          <label>Lang</label>
+          <select class="option-select"><option selected>English</option></select>
+        </div>
+        <div class="search-container">
+          <input class="search-input" type="text" placeholder="Type card name to search..." disabled style="opacity: 0.5;">
+          <!-- ^ Disabled because there are no cards to search -->
+        </div>
+        <div style="padding: 12px; text-align: center;">
+          <div style="font-size: 12px; color: #a0a0b0;">No sets cached</div>
+          <div style="font-size: 11px; color: #555; margin-top: 4px;">Open the extension popup to cache card sets.</div>
+        </div>
+        <div class="status-bar">
+          <span class="status-message" style="color: #777;">0 cards available</span>
+          <span class="session-count">Session: <strong>0</strong></span>
+        </div>
+      </div>
+      <div class="demo-label">Logged in but no sets cached. Search disabled with instructions to use popup.</div>
+    </div>
+  </div>
+
+  <!-- ============================================================
+       WIREFRAME SECTION 8: Not authenticated state
+       Shown when no auth token is stored
+       ============================================================ -->
+  <div class="wireframe-demo">
+    <div class="demo-section">
+      <h3>Expanded – Not Authenticated</h3>
+      <div class="overlay-panel" style="position: relative; bottom: auto; right: auto;">
+        <div class="overlay-header">
+          <span class="overlay-title">⚡ Fast Inventory</span>
+          <button class="collapse-btn" title="Collapse (Ctrl+Shift+E)">−</button>
+        </div>
+        <div style="padding: 24px 12px; text-align: center;">
+          <div style="font-size: 13px; color: #a0a0b0; margin-bottom: 8px;">Not logged in</div>
+          <div style="font-size: 12px; color: #777;">Open the extension popup to sign in and cache sets.</div>
+        </div>
+        <div class="status-bar">
+          <span class="status-message error">No auth token</span>
+          <span></span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</body>
+</html>

@@ -1,0 +1,661 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>EchoMTG Fast Inventory – Popup Wireframe</title>
+  <!--
+    ============================================================
+    WIREFRAME: Extension popup (settings & cache management)
+    ============================================================
+    This is a static wireframe documenting the popup UI opened
+    from the browser toolbar icon.
+
+    POPUP DIMENSIONS:
+    - Width: 360px (Chrome popup max ~800px, keep narrow)
+    - Height: auto, scrollable if content exceeds viewport
+
+    SECTIONS & INTERACTIONS
+    =======================
+
+    1. AUTH SECTION
+       States:
+       a) Logged out — shows email/password form + Login button
+          - Submit → sends LOGIN message to service worker
+          - On success → transitions to "logged in" state, stores token
+          - On failure → shows error inline ("Invalid credentials" / "Network error")
+       b) Logged in — shows "Logged in as user@email.com" + Logout button
+          - Logout → clears token from BrowserAPI.storage, transitions to logged-out
+
+    2. SET CACHE SECTION (only visible when logged in)
+       - Searchable/filterable list of MTG set codes (hardcoded or fetched)
+       - Each set row: checkbox, set name, set code, cached card count (if cached)
+       - "Cache Selected" button:
+         - Sends CACHE_SETS message with selected set codes
+         - Shows progress bar: "Caching NEO... (2/5 sets)"
+         - Each set: fetch all cards → normalize → store in IndexedDB
+         - On completion: card counts update, checkboxes clear
+       - "Clear" button per cached set to remove from IndexedDB
+
+    3. DEFAULTS SECTION (only visible when logged in)
+       - Default condition dropdown (Near Mint, Lightly Played, etc.)
+         - Saved to IndexedDB state, used as default in overlay
+       - Default language dropdown (English, Japanese, etc.)
+         - Saved to IndexedDB state, sent with add requests
+
+    4. CACHE STATUS SECTION (only visible when logged in)
+       - Summary: "3 sets cached, 1,247 cards total"
+       - Per-set breakdown with clear buttons
+       - "Clear All Cache" button with confirmation
+
+    STATE PERSISTENCE:
+    - Auth token: BrowserAPI.storage (chrome.storage.local)
+    - Cached sets/cards: IndexedDB
+    - Default condition/language: IndexedDB state store
+    - Popup reads all state on open via GET_STATE / GET_CACHED_SETS messages
+
+    POPUP LIFECYCLE:
+    - On open: check auth token, load cached set list, load defaults
+    - Popup closing does NOT interrupt ongoing cache operations
+      (service worker continues independently)
+  -->
+  <style>
+    /* ---- Popup container ---- */
+    body {
+      margin: 0;
+      width: 360px;
+      background: #0d0d0d;
+      font-family: 'Inter', 'Segoe UI', sans-serif;
+      color: #e8e8e8;
+      font-size: 13px;
+    }
+
+    /* ---- Header ---- */
+    .popup-header {
+      padding: 12px 16px;
+      background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+      border-bottom: 1px solid #2d2d5a;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .popup-header h1 {
+      font-family: 'Cinzel', serif;
+      font-size: 15px;
+      color: #c9a227;
+      margin: 0;
+      letter-spacing: 0.5px;
+      text-shadow: 0 1px 3px rgba(0,0,0,0.5);
+    }
+    .popup-header .version {
+      font-size: 10px;
+      color: #555;
+      margin-left: auto;
+    }
+
+    /* ---- Section ---- */
+    .section {
+      padding: 12px 16px;
+      border-bottom: 1px solid #1e1e3a;
+    }
+    .section-title {
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      color: #c9a227;
+      margin: 0 0 10px 0;
+      font-weight: 600;
+    }
+
+    /* ---- Form elements ---- */
+    input[type="text"],
+    input[type="email"],
+    input[type="password"] {
+      width: 100%;
+      padding: 8px 10px;
+      background: #0d0d0d;
+      border: 1px solid #2d2d5a;
+      border-radius: 4px;
+      color: #e8e8e8;
+      font-size: 13px;
+      box-sizing: border-box;
+    }
+    input:focus {
+      border-color: #c9a227;
+      outline: none;
+      box-shadow: 0 0 0 2px rgba(201, 162, 39, 0.15);
+    }
+    input::placeholder {
+      color: #555;
+    }
+    select {
+      width: 100%;
+      padding: 8px 10px;
+      background: #0d0d0d;
+      border: 1px solid #2d2d5a;
+      border-radius: 4px;
+      color: #e8e8e8;
+      font-size: 13px;
+      box-sizing: border-box;
+    }
+    select:focus {
+      border-color: #c9a227;
+      outline: none;
+    }
+    .form-row {
+      margin-bottom: 8px;
+    }
+    .form-row label {
+      display: block;
+      font-size: 11px;
+      color: #a0a0b0;
+      margin-bottom: 4px;
+      text-transform: uppercase;
+      letter-spacing: 0.3px;
+    }
+    .form-row-inline {
+      display: flex;
+      gap: 10px;
+    }
+    .form-row-inline .form-row {
+      flex: 1;
+    }
+
+    /* ---- Buttons ---- */
+    .btn {
+      padding: 8px 16px;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 12px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    .btn-primary {
+      background: linear-gradient(135deg, #c9a227, #8b6914);
+      color: #0d0d0d;
+      width: 100%;
+    }
+    .btn-primary:hover {
+      background: linear-gradient(135deg, #f0d67b, #c9a227);
+    }
+    .btn-secondary {
+      background: transparent;
+      border: 1px solid #2d2d5a;
+      color: #a0a0b0;
+    }
+    .btn-secondary:hover {
+      border-color: #c9a227;
+      color: #c9a227;
+    }
+    .btn-danger {
+      background: transparent;
+      border: 1px solid #5a2d2d;
+      color: #ef5350;
+      font-size: 11px;
+      padding: 4px 10px;
+    }
+    .btn-danger:hover {
+      background: #2a1515;
+    }
+    .btn-sm {
+      padding: 4px 10px;
+      font-size: 11px;
+    }
+
+    /* ---- Auth status ---- */
+    .auth-status {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 8px 12px;
+      background: #111a11;
+      border: 1px solid #1e3a1e;
+      border-radius: 4px;
+    }
+    .auth-status .user-email {
+      font-size: 12px;
+      color: #6fbf73;
+    }
+    .auth-status .dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #6fbf73;
+      display: inline-block;
+      margin-right: 6px;
+    }
+    .auth-error {
+      color: #ef5350;
+      font-size: 12px;
+      margin-top: 6px;
+    }
+
+    /* ---- Set list ---- */
+    .set-filter {
+      margin-bottom: 8px;
+    }
+    .set-filter input {
+      font-size: 12px;
+      padding: 6px 8px;
+    }
+    .set-list {
+      max-height: 200px;
+      overflow-y: auto;
+      border: 1px solid #1e1e3a;
+      border-radius: 4px;
+      background: #0a0a15;
+    }
+    .set-list::-webkit-scrollbar {
+      width: 6px;
+    }
+    .set-list::-webkit-scrollbar-track {
+      background: #0a0a15;
+    }
+    .set-list::-webkit-scrollbar-thumb {
+      background: #2d2d5a;
+      border-radius: 3px;
+    }
+    .set-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 10px;
+      border-bottom: 1px solid #1a1a2e;
+      font-size: 12px;
+    }
+    .set-row:last-child {
+      border-bottom: none;
+    }
+    .set-row input[type="checkbox"] {
+      accent-color: #c9a227;
+      width: auto;
+    }
+    .set-row .set-name {
+      flex: 1;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .set-row .set-code {
+      color: #777;
+      font-family: monospace;
+      font-size: 11px;
+      width: 36px;
+    }
+    .set-row .set-cached {
+      font-size: 10px;
+      color: #6fbf73;
+      width: 50px;
+      text-align: right;
+    }
+    .set-row .set-not-cached {
+      font-size: 10px;
+      color: #555;
+      width: 50px;
+      text-align: right;
+    }
+    .set-actions {
+      display: flex;
+      gap: 8px;
+      margin-top: 8px;
+    }
+    .set-actions .btn {
+      flex: 1;
+    }
+
+    /* ---- Progress bar ---- */
+    .progress-container {
+      margin-top: 8px;
+    }
+    .progress-label {
+      font-size: 11px;
+      color: #a0a0b0;
+      margin-bottom: 4px;
+    }
+    .progress-bar {
+      height: 6px;
+      background: #1e1e3a;
+      border-radius: 3px;
+      overflow: hidden;
+    }
+    .progress-fill {
+      height: 100%;
+      background: linear-gradient(90deg, #c9a227, #f0d67b);
+      border-radius: 3px;
+      transition: width 0.3s ease;
+    }
+
+    /* ---- Cache summary ---- */
+    .cache-summary {
+      font-size: 12px;
+      color: #a0a0b0;
+      margin-bottom: 10px;
+    }
+    .cache-summary strong {
+      color: #f0d67b;
+    }
+    .cached-set-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 5px 0;
+      border-bottom: 1px solid #1a1a2e;
+      font-size: 12px;
+    }
+    .cached-set-row:last-child {
+      border-bottom: none;
+    }
+    .cached-set-info {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .cached-set-info .set-code {
+      font-family: monospace;
+      color: #777;
+      font-size: 11px;
+    }
+    .cached-set-info .card-count {
+      color: #6fbf73;
+      font-size: 11px;
+    }
+    .clear-all-area {
+      margin-top: 10px;
+      padding-top: 10px;
+      border-top: 1px solid #1e1e3a;
+      text-align: right;
+    }
+
+    /* ---- Demo layout ---- */
+    .wireframe-wrapper {
+      background: #1a1a2e;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 40px;
+      padding: 40px 20px;
+    }
+    .demo-section {
+      text-align: center;
+    }
+    .demo-section h3 {
+      font-family: 'Cinzel', serif;
+      color: #c9a227;
+      font-size: 14px;
+      margin-bottom: 12px;
+    }
+    .demo-label {
+      font-size: 11px;
+      color: #777;
+      margin-top: 8px;
+      max-width: 360px;
+    }
+  </style>
+</head>
+<body>
+
+<div class="wireframe-wrapper">
+
+  <!-- ============================================================
+       WIREFRAME SECTION 1: Logged-out state
+       Initial state when no auth token exists
+       ============================================================ -->
+  <div class="demo-section">
+    <h3>State: Logged Out</h3>
+    <div style="width: 360px; background: #0d0d0d; border-radius: 8px; overflow: hidden; border: 1px solid #2d2d5a; text-align: left;">
+      <div class="popup-header">
+        <h1>⚡ Fast Inventory</h1>
+        <span class="version">v0.1.0</span>
+      </div>
+
+      <div class="section">
+        <div class="section-title">Account</div>
+        <div class="form-row">
+          <label>Email</label>
+          <input type="email" placeholder="you@example.com">
+        </div>
+        <div class="form-row">
+          <label>Password</label>
+          <input type="password" placeholder="EchoMTG password">
+        </div>
+        <div class="form-row" style="margin-top: 10px;">
+          <button class="btn btn-primary">Login</button>
+        </div>
+        <!-- Error state (shown inline on failure): -->
+        <!-- <div class="auth-error">Invalid credentials. Check email and password.</div> -->
+      </div>
+
+      <div class="section" style="opacity: 0.4; pointer-events: none;">
+        <div class="section-title">Set Cache</div>
+        <div style="font-size: 12px; color: #555;">Login to manage set cache</div>
+      </div>
+    </div>
+    <div class="demo-label">Login form. Set cache and defaults sections disabled until authenticated.</div>
+  </div>
+
+  <!-- ============================================================
+       WIREFRAME SECTION 2: Login error
+       ============================================================ -->
+  <div class="demo-section">
+    <h3>State: Login Error</h3>
+    <div style="width: 360px; background: #0d0d0d; border-radius: 8px; overflow: hidden; border: 1px solid #2d2d5a; text-align: left;">
+      <div class="popup-header">
+        <h1>⚡ Fast Inventory</h1>
+        <span class="version">v0.1.0</span>
+      </div>
+
+      <div class="section">
+        <div class="section-title">Account</div>
+        <div class="form-row">
+          <label>Email</label>
+          <input type="email" value="user@example.com">
+        </div>
+        <div class="form-row">
+          <label>Password</label>
+          <input type="password" value="wrongpass">
+        </div>
+        <div class="form-row" style="margin-top: 10px;">
+          <button class="btn btn-primary">Login</button>
+        </div>
+        <div class="auth-error">Invalid credentials. Check email and password.</div>
+      </div>
+    </div>
+    <div class="demo-label">Inline error message on auth failure. Form fields retained for retry.</div>
+  </div>
+
+  <!-- ============================================================
+       WIREFRAME SECTION 3: Logged-in state, full UI
+       All sections visible and interactive
+       ============================================================ -->
+  <div class="demo-section">
+    <h3>State: Logged In – Full UI</h3>
+    <div style="width: 360px; background: #0d0d0d; border-radius: 8px; overflow: hidden; border: 1px solid #2d2d5a; text-align: left;">
+      <div class="popup-header">
+        <h1>⚡ Fast Inventory</h1>
+        <span class="version">v0.1.0</span>
+      </div>
+
+      <!-- Auth status -->
+      <div class="section">
+        <div class="section-title">Account</div>
+        <div class="auth-status">
+          <span><span class="dot"></span><span class="user-email">user@example.com</span></span>
+          <button class="btn btn-secondary btn-sm">Logout</button>
+        </div>
+      </div>
+
+      <!-- Set cache -->
+      <div class="section">
+        <div class="section-title">Set Cache</div>
+        <div class="set-filter">
+          <input type="text" placeholder="Filter sets..." style="width: 100%; font-size: 12px; padding: 6px 8px;">
+        </div>
+        <div class="set-list">
+          <div class="set-row">
+            <input type="checkbox" checked>
+            <span class="set-name">Foundations</span>
+            <span class="set-code">FDN</span>
+            <span class="set-not-cached">—</span>
+          </div>
+          <div class="set-row">
+            <input type="checkbox">
+            <span class="set-name">Duskmourn: House of Horror</span>
+            <span class="set-code">DSK</span>
+            <span class="set-cached">482 cards</span>
+          </div>
+          <div class="set-row">
+            <input type="checkbox">
+            <span class="set-name">Bloomburrow</span>
+            <span class="set-code">BLB</span>
+            <span class="set-cached">391 cards</span>
+          </div>
+          <div class="set-row">
+            <input type="checkbox" checked>
+            <span class="set-name">Modern Horizons 3</span>
+            <span class="set-code">MH3</span>
+            <span class="set-not-cached">—</span>
+          </div>
+          <div class="set-row">
+            <input type="checkbox">
+            <span class="set-name">Outlaws of Thunder Junction</span>
+            <span class="set-code">OTJ</span>
+            <span class="set-not-cached">—</span>
+          </div>
+          <div class="set-row">
+            <input type="checkbox">
+            <span class="set-name">Kamigawa: Neon Dynasty</span>
+            <span class="set-code">NEO</span>
+            <span class="set-cached">507 cards</span>
+          </div>
+        </div>
+        <div class="set-actions">
+          <button class="btn btn-primary">Cache Selected (2)</button>
+        </div>
+      </div>
+
+      <!-- Defaults -->
+      <div class="section">
+        <div class="section-title">Defaults</div>
+        <div class="form-row-inline">
+          <div class="form-row">
+            <label>Condition</label>
+            <select>
+              <option selected>Near Mint</option>
+              <option>Lightly Played</option>
+              <option>Moderately Played</option>
+              <option>Heavily Played</option>
+              <option>Damaged</option>
+            </select>
+          </div>
+          <div class="form-row">
+            <label>Language</label>
+            <select>
+              <option selected>English</option>
+              <option>Japanese</option>
+              <option>Chinese (S)</option>
+              <option>Chinese (T)</option>
+              <option>French</option>
+              <option>German</option>
+              <option>Italian</option>
+              <option>Korean</option>
+              <option>Portuguese</option>
+              <option>Russian</option>
+              <option>Spanish</option>
+            </select>
+          </div>
+        </div>
+      </div>
+
+      <!-- Cache status -->
+      <div class="section">
+        <div class="section-title">Cached Data</div>
+        <div class="cache-summary"><strong>3</strong> sets cached, <strong>1,380</strong> cards total</div>
+        <div class="cached-set-row">
+          <div class="cached-set-info">
+            <span>Duskmourn: House of Horror</span>
+            <span class="set-code">DSK</span>
+            <span class="card-count">482</span>
+          </div>
+          <button class="btn btn-danger btn-sm">Clear</button>
+        </div>
+        <div class="cached-set-row">
+          <div class="cached-set-info">
+            <span>Bloomburrow</span>
+            <span class="set-code">BLB</span>
+            <span class="card-count">391</span>
+          </div>
+          <button class="btn btn-danger btn-sm">Clear</button>
+        </div>
+        <div class="cached-set-row">
+          <div class="cached-set-info">
+            <span>Kamigawa: Neon Dynasty</span>
+            <span class="set-code">NEO</span>
+            <span class="card-count">507</span>
+          </div>
+          <button class="btn btn-danger btn-sm">Clear</button>
+        </div>
+        <div class="clear-all-area">
+          <button class="btn btn-danger">Clear All Cache</button>
+        </div>
+      </div>
+    </div>
+    <div class="demo-label">Full logged-in view. FDN and MH3 are checked for caching. DSK, BLB, NEO already cached with card counts shown.</div>
+  </div>
+
+  <!-- ============================================================
+       WIREFRAME SECTION 4: Caching in progress
+       Shown during active set cache download
+       ============================================================ -->
+  <div class="demo-section">
+    <h3>State: Caching In Progress</h3>
+    <div style="width: 360px; background: #0d0d0d; border-radius: 8px; overflow: hidden; border: 1px solid #2d2d5a; text-align: left;">
+      <div class="popup-header">
+        <h1>⚡ Fast Inventory</h1>
+        <span class="version">v0.1.0</span>
+      </div>
+
+      <div class="section">
+        <div class="section-title">Account</div>
+        <div class="auth-status">
+          <span><span class="dot"></span><span class="user-email">user@example.com</span></span>
+          <button class="btn btn-secondary btn-sm">Logout</button>
+        </div>
+      </div>
+
+      <div class="section">
+        <div class="section-title">Set Cache</div>
+        <div class="set-list" style="max-height: 120px; opacity: 0.6; pointer-events: none;">
+          <div class="set-row">
+            <input type="checkbox" checked disabled>
+            <span class="set-name">Foundations</span>
+            <span class="set-code">FDN</span>
+            <span class="set-not-cached" style="color: #c9a227;">caching...</span>
+          </div>
+          <div class="set-row">
+            <input type="checkbox" checked disabled>
+            <span class="set-name">Modern Horizons 3</span>
+            <span class="set-code">MH3</span>
+            <span class="set-not-cached">queued</span>
+          </div>
+        </div>
+        <div class="progress-container">
+          <div class="progress-label">Caching FDN... (1/2 sets)</div>
+          <div class="progress-bar">
+            <div class="progress-fill" style="width: 35%;"></div>
+          </div>
+        </div>
+        <div class="set-actions">
+          <button class="btn btn-secondary" style="flex:1;">Cancel</button>
+        </div>
+      </div>
+    </div>
+    <div class="demo-label">Set list disabled during caching. Progress bar shows current set and overall progress. Cancel stops remaining sets.</div>
+  </div>
+
+</div>
+
+</body>
+</html>

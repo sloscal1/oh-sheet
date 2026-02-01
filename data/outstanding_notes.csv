@@ -1,0 +1,29 @@
+Reg Qty,Foil Qty,Name,Set,Rarity,Acquired,Language,Date Acquired,Set Code,Collector Number,Condition,Marked as Trade,note,echo_inventory_id,tcgid,echoid,echo_matched_id,finishes,promo,border_color
+
+Added
+2,0,Forest,WC98,,,EN,,WC98,0348,NM,0.0,b2r2p41|b2r2p52,,,,,nonfoil,False,gold
+0,1,Queen Kayla bin-Kroog,BRO,,,EN,,BRO,0379,NM,0.0,b2r2p619,,,,,foil,True,black
+0,1,Jadelight Spelunker,LCI,,,EN,,PLCI,0403,NM,0.0,b2r2p590,,,,,foil,True,black
+0,1,Dragonsguard Elite,STX,,,EN,,STX,0376,NM,0.0,b2r2p614,,,,,foil,True,black
+2,0,Badger,TDMU,,,EN,,TDMU,0015,NM,0.0,b3r2p665|b3r2p666,,,,,nonfoil,False,black
+1,0,Cat Warrior,TDMU,,,EN,,TDMU,0017,NM,0.0,b3r2p847,,,,,nonfoil,False,black
+1,0,Sand Warrior,TDMU,,,EN,,TDMU,0020,NM,0.0,b3r2p769,,,,,nonfoil,False,black
+1,0,Stangg Twin,TDMU,,,EN,,TDMU,0021,NM,0.0,b3r2p755,,,,,nonfoil,False,black
+Sent for incorrect collector number
+1,0,Curse of Shaken Faith,MID,,,EN,,MID,0353,NM,0.0,b2r3p107,,,,,nonfoil,False,black
+1,0,Foretell,TKHM,,,EN,,TKHM,0023,NM,0.0,b3r2p663,,,,,nonfoil,False,black
+
+I need to manually check
+(Already in) 1,0,"Lin Sivvi, Defiant Hero",SLC,,,EN,,SLC,0000,NM,0.0,b2r1p18,,,,,nonfoil,True,borderless
+0,1,Wrath of God,2XM,,,EN,,2XM,0383,NM,0.0,b2r2p625,,,,,foil,True,black
+(13 copies?) 13,0,1998 World Championships Ad,WC98,,,EN,,WC98,0000,NM,0.0,b2r2p2|b2r2p24|b2r2p25|b2r2p29|b2r2p30|b2r2p43|b2r2p45|b2r2p48|b2r2p53|b2r2p55|b2r2p64|b2r2p71|b2r2p72,,,,,nonfoil,False,gold
+1,1,The Mightstone and Weakstone,BRO,,,EN,,BRO,038a,NM,0.0,b2r1p264|b2r1p265,,,,,foil,False,black
+0,1,Casualties of War,PWAR,,,EN,,PWAR,087p,NM,0.0,b2r2p624,,,,,foil,True,black
+(Added) 0,1,Spell Swindle,PXLN,,,EN,,PXLN,082p,NM,0.0,b2r2p623,,,,,foil,True,black
+0,2,Goblin,TAFR,,,EN,,TAFR,0012,NM,0.0,b3r2p932a|b3r2p950b,,,,,foil,False,black
+0,1,Skeleton,TAFR,,,EN,,TAFR,0006,NM,0.0,b3r2p951b,,,,,foil,False,black
+
+Not in inventory
+2,0,Forest,WC98,,,EN,,WC98,0350,NM,0.0,b2r2p19|b2r2p42,,,,,nonfoil,False,gold
+
+
